@@ -2784,6 +2784,75 @@ function acceptSharedTask(id, accept){
   if (t.inCalendar) renderDashboard();
 }
 
+function myVisibleActivities(){
+  return (activities || []).filter(activityVisibleToMe);
+}
+function _actStatusBadge(st){
+  const cls = st === 'Hecho' ? 'bdg-done' : st === 'En curso' ? 'bdg-prog' : st === 'Cancelada' ? 'bdg-canc' : 'bdg-pend';
+  return '<span class="bdg '+cls+'">'+esc(st || 'Pendiente')+'</span>';
+}
+function renderPanelActivitiesByMonth(){
+  const acts = myVisibleActivities();
+  let h = '<div class="card" style="margin-bottom:16px;">';
+  h += '<div class="card-h"><div class="card-title">🗓 Actividades por mes</div></div>';
+  if (acts.length === 0){
+    h += '<div style="font-size:12.5px;color:var(--text-muted);padding:12px 4px;text-align:center;">Todavía no cargaste actividades. Las que crees en el Dashboard van a aparecer acá, mes a mes.</div></div>';
+    return h;
+  }
+  const oneTime = acts.filter(a => a.recur !== 'monthly' && a.recur !== 'weekly');
+  const recurring = acts.filter(a => a.recur === 'monthly' || a.recur === 'weekly');
+  const monthsSet = new Set();
+  oneTime.forEach(a => { if (a.date) monthsSet.add(a.date.slice(0,7)); });
+  const now = new Date();
+  for (let i=0;i<3;i++){ const d = new Date(now.getFullYear(), now.getMonth()+i, 1); monthsSet.add(d.toISOString().slice(0,7)); }
+  const months = Array.from(monthsSet).sort();
+  const curMonth = now.toISOString().slice(0,7);
+  const rowFor = function(a, isRec){
+    let meta;
+    if (isRec){
+      meta = a.recur === 'weekly'
+        ? '🔁 Semanal · ' + new Date(((a.date||(curMonth+'-01')))+'T00:00:00').toLocaleDateString('es-AR',{weekday:'long'})
+        : '🔁 Mensual · día ' + (((a.date||'').slice(8,10)) || '—');
+    } else {
+      meta = (a.date||'').slice(8,10)+'/'+(a.date||'').slice(5,7) + (a.time ? ' · '+a.time : '');
+    }
+    let s = '<div onclick="openActivityModal(\''+a.id+'\')" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 9px;border-radius:7px;cursor:pointer;background:var(--bg-page);margin-bottom:6px;">';
+    s += '<div style="min-width:0;"><div style="font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(a.title)+'</div>';
+    s += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">'+meta+(a.type?' · '+esc(a.type):'')+(a.priority&&a.priority!=='Media'?' · '+esc(a.priority):'')+'</div></div>';
+    s += '<div style="flex-shrink:0;">'+_actStatusBadge(a.status)+'</div></div>';
+    return s;
+  };
+  let shown = 0;
+  months.forEach(m => {
+    const mOne = oneTime.filter(a => (a.date||'').slice(0,7) === m).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+    const mRec = recurring.filter(a => (a.date||'').slice(0,7) <= m);
+    if (mOne.length === 0 && mRec.length === 0) return;
+    shown++;
+    const done = mOne.filter(a => a.status === 'Hecho').length;
+    const pct = mOne.length ? Math.round(done/mOne.length*100) : 0;
+    const label = new Date(m+'-01T00:00:00').toLocaleDateString('es-AR',{month:'long',year:'numeric'});
+    const isCur = (m === curMonth);
+    h += '<div style="border:1px solid var(--border);border-radius:10px;padding:12px 13px;margin-bottom:11px;'+(isCur?'border-left:3px solid var(--primary);':'')+'">';
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">';
+    h += '<div style="font-weight:700;font-size:13.5px;text-transform:capitalize;">'+label+(isCur?' · <span style="color:var(--primary);font-size:11px;text-transform:none;">este mes</span>':'')+'</div>';
+    if (mOne.length) h += '<div style="font-size:11.5px;color:var(--text-muted);">'+done+'/'+mOne.length+' hechas · '+pct+'%</div>';
+    h += '</div>';
+    if (mOne.length){
+      const barColor = pct>=80?'#047857':pct>=40?'#D97706':'var(--primary)';
+      h += '<div class="progress" style="margin-bottom:10px;"><div class="progress-bar" style="width:'+pct+'%;background:'+barColor+';"></div></div>';
+    }
+    mOne.forEach(a => h += rowFor(a, false));
+    if (mRec.length){
+      h += '<div style="font-size:10.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin:8px 0 5px;">Fijas / recurrentes</div>';
+      mRec.forEach(a => h += rowFor(a, true));
+    }
+    h += '</div>';
+  });
+  if (shown === 0) h += '<div style="font-size:12.5px;color:var(--text-muted);padding:12px 4px;text-align:center;">Sin actividades en los próximos meses.</div>';
+  h += '</div>';
+  return h;
+}
+
 function renderPanel() {
   const c = document.getElementById('panel-container');
   if (!c) return;
@@ -2828,6 +2897,8 @@ function renderPanel() {
   h += renderPanelKpis();
   // Gráficos
   h += renderPanelCharts();
+  // Actividades del Dashboard, mes a mes
+  h += renderPanelActivitiesByMonth();
   // Filtros
   h += renderPanelFilters();
 
@@ -3681,6 +3752,7 @@ function saveActivity() {
   save(STORAGE.activities, activities);
   closeModal('modal-activity');
   renderDashboard();
+  if (document.getElementById('panel-container')) renderPanel();
 }
 function deleteActivity() {
   if (!confirm('¿Eliminar esta actividad?')) return;
@@ -3688,6 +3760,7 @@ function deleteActivity() {
   save(STORAGE.activities, activities);
   closeModal('modal-activity');
   renderDashboard();
+  if (document.getElementById('panel-container')) renderPanel();
 }
 
 // ============ COUNTER ============
