@@ -2784,6 +2784,75 @@ function acceptSharedTask(id, accept){
   if (t.inCalendar) renderDashboard();
 }
 
+function myVisibleActivities(){
+  return (activities || []).filter(activityVisibleToMe);
+}
+function _actStatusBadge(st){
+  const cls = st === 'Hecho' ? 'bdg-done' : st === 'En curso' ? 'bdg-prog' : st === 'Cancelada' ? 'bdg-canc' : 'bdg-pend';
+  return '<span class="bdg '+cls+'">'+esc(st || 'Pendiente')+'</span>';
+}
+function renderPanelActivitiesByMonth(){
+  const acts = myVisibleActivities();
+  let h = '<div class="card" style="margin-bottom:16px;">';
+  h += '<div class="card-h"><div class="card-title">🗓 Actividades por mes</div></div>';
+  if (acts.length === 0){
+    h += '<div style="font-size:12.5px;color:var(--text-muted);padding:12px 4px;text-align:center;">Todavía no cargaste actividades. Las que crees en el Dashboard van a aparecer acá, mes a mes.</div></div>';
+    return h;
+  }
+  const oneTime = acts.filter(a => a.recur !== 'monthly' && a.recur !== 'weekly');
+  const recurring = acts.filter(a => a.recur === 'monthly' || a.recur === 'weekly');
+  const monthsSet = new Set();
+  oneTime.forEach(a => { if (a.date) monthsSet.add(a.date.slice(0,7)); });
+  const now = new Date();
+  for (let i=0;i<3;i++){ const d = new Date(now.getFullYear(), now.getMonth()+i, 1); monthsSet.add(d.toISOString().slice(0,7)); }
+  const months = Array.from(monthsSet).sort();
+  const curMonth = now.toISOString().slice(0,7);
+  const rowFor = function(a, isRec){
+    let meta;
+    if (isRec){
+      meta = a.recur === 'weekly'
+        ? '🔁 Semanal · ' + new Date(((a.date||(curMonth+'-01')))+'T00:00:00').toLocaleDateString('es-AR',{weekday:'long'})
+        : '🔁 Mensual · día ' + (((a.date||'').slice(8,10)) || '—');
+    } else {
+      meta = (a.date||'').slice(8,10)+'/'+(a.date||'').slice(5,7) + (a.time ? ' · '+a.time : '');
+    }
+    let s = '<div onclick="openActivityModal(\''+a.id+'\')" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 9px;border-radius:7px;cursor:pointer;background:var(--bg-page);margin-bottom:6px;">';
+    s += '<div style="min-width:0;"><div style="font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(a.title)+'</div>';
+    s += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">'+meta+(a.type?' · '+esc(a.type):'')+(a.priority&&a.priority!=='Media'?' · '+esc(a.priority):'')+'</div></div>';
+    s += '<div style="flex-shrink:0;">'+_actStatusBadge(a.status)+'</div></div>';
+    return s;
+  };
+  let shown = 0;
+  months.forEach(m => {
+    const mOne = oneTime.filter(a => (a.date||'').slice(0,7) === m).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+    const mRec = recurring.filter(a => (a.date||'').slice(0,7) <= m);
+    if (mOne.length === 0 && mRec.length === 0) return;
+    shown++;
+    const done = mOne.filter(a => a.status === 'Hecho').length;
+    const pct = mOne.length ? Math.round(done/mOne.length*100) : 0;
+    const label = new Date(m+'-01T00:00:00').toLocaleDateString('es-AR',{month:'long',year:'numeric'});
+    const isCur = (m === curMonth);
+    h += '<div style="border:1px solid var(--border);border-radius:10px;padding:12px 13px;margin-bottom:11px;'+(isCur?'border-left:3px solid var(--primary);':'')+'">';
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">';
+    h += '<div style="font-weight:700;font-size:13.5px;text-transform:capitalize;">'+label+(isCur?' · <span style="color:var(--primary);font-size:11px;text-transform:none;">este mes</span>':'')+'</div>';
+    if (mOne.length) h += '<div style="font-size:11.5px;color:var(--text-muted);">'+done+'/'+mOne.length+' hechas · '+pct+'%</div>';
+    h += '</div>';
+    if (mOne.length){
+      const barColor = pct>=80?'#047857':pct>=40?'#D97706':'var(--primary)';
+      h += '<div class="progress" style="margin-bottom:10px;"><div class="progress-bar" style="width:'+pct+'%;background:'+barColor+';"></div></div>';
+    }
+    mOne.forEach(a => h += rowFor(a, false));
+    if (mRec.length){
+      h += '<div style="font-size:10.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin:8px 0 5px;">Fijas / recurrentes</div>';
+      mRec.forEach(a => h += rowFor(a, true));
+    }
+    h += '</div>';
+  });
+  if (shown === 0) h += '<div style="font-size:12.5px;color:var(--text-muted);padding:12px 4px;text-align:center;">Sin actividades en los próximos meses.</div>';
+  h += '</div>';
+  return h;
+}
+
 function renderPanel() {
   const c = document.getElementById('panel-container');
   if (!c) return;
@@ -2828,6 +2897,8 @@ function renderPanel() {
   h += renderPanelKpis();
   // Gráficos
   h += renderPanelCharts();
+  // Actividades del Dashboard, mes a mes
+  h += renderPanelActivitiesByMonth();
   // Filtros
   h += renderPanelFilters();
 
@@ -3681,6 +3752,7 @@ function saveActivity() {
   save(STORAGE.activities, activities);
   closeModal('modal-activity');
   renderDashboard();
+  if (document.getElementById('panel-container')) renderPanel();
 }
 function deleteActivity() {
   if (!confirm('¿Eliminar esta actividad?')) return;
@@ -3688,6 +3760,7 @@ function deleteActivity() {
   save(STORAGE.activities, activities);
   closeModal('modal-activity');
   renderDashboard();
+  if (document.getElementById('panel-container')) renderPanel();
 }
 
 // ============ COUNTER ============
@@ -5556,61 +5629,73 @@ function notifyDealerByMail(recallId, code) {
   const pending = units.filter(u => !u.serviced);
   const dealerName = (dlr ? dlr.n : code);
   const dealerLine = dealerName.toUpperCase() + ' - ' + code;
-  const subject = ('Campaña de recall ' + (r.name || '') + ' - ' + dealerLine).toUpperCase();
+  const subject = 'Acompañamiento Recall (' + (r.name || '') + ')';
   let vig = r.start || '-';
   if (/^\d{4}-\d{2}-\d{2}/.test(vig)) { const pp = vig.slice(0,10).split('-'); vig = pp[2]+'/'+pp[1]+'/'+pp[0]; }
   const dn = esc(dealerLine), rn = esc(r.name || ''), rm = esc(r.models || '-'), rv = esc(vig);
   const RED = '#C00000';
 
-  // Versión con formato (negritas + rojo) para pegar en el correo
+  // Versión con formato (negritas en encabezados) para pegar en el correo
   let html = '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#16181D;line-height:1.55;">';
   html += 'Estimado <b>' + dn + '</b>,<br><br>';
-  html += 'Les compartimos la información correspondiente a la campaña de recall activa:<br>';
-  html += '<b>Campaña: ' + rn + '</b><br>';
-  html += '<b>Modelo involucrado: ' + rm + '</b><br>';
-  html += '<b>Vigencia: Desde el ' + rv + '</b><br><br>';
-  html += '<b>Adjuntos</b>:';
+  html += 'Nos ponemos en contacto con el fin de compartirles información sobre la campaña de recall activa en mención.<br><br>';
+  html += '<b>Detalles</b><br>';
+  html += 'Campaña: ' + rn + '<br>';
+  html += 'Modelo involucrado: ' + rm + '<br>';
+  html += 'Puesta en vigencia: ' + rv + '<br><br>';
+  html += '<b>Archivos adjuntos:</b>';
   html += '<ul style="margin:6px 0 14px;padding-left:20px;">';
-  html += '<li>Boletín de lanzamiento de la campaña</li>';
-  html += '<li>Listado de unidades asignadas a ustedes.</li>';
-  html += '<li>Instructivo de aplicación de la campaña.</li>';
+  html += '<li>Boletín de lanzamiento de la campaña.</li>';
+  html += '<li>Instructivo de realización.</li>';
+  html += '<li>Listado de unidades asignadas a su concesionario.</li>';
   html += '<li>Acta de intervención de campaña de recall.</li>';
   html += '</ul>';
   html += '<b>Propuesta</b><br>';
-  html += 'El objetivo de este comunicado es darle el conocimiento de las unidades involucradas que le fueron asignadas, y proponer que llevemos esta actividad en conjunto para lograr el cumplimiento de la misma.<br><br>';
-  html += '<b>Les solicito que confirmen la recepción de este mail, para luego definir un objetivo de cumplimiento mensual que sea alcanzable y acorde a la realidad de su concesionario</b>.<br>';
-  html += 'Nuestra estrategia es idear un plan que nos permita cumplir con el objetivo y dar seguimiento al avance de la campaña de forma ordenada y sostenible en el tiempo, la actividad se auditará mes a mes hasta concluir con la campaña.<br><br>';
-  html += '<font color="' + RED + '"><span style="color:' + RED + ';">Aclaro que, hasta que no definamos ese objetivo en conjunto, no se realizará ninguna medición de cumplimiento, la prioridad es acordar una metodología de trabajo que resulte clara y viable para ambas partes. Por lo que no pondremos fechas de cumplimiento en esta primera instancia.</span></font><br><br>';
-  html += 'Buscamos acompañarlos durante el proceso, brindar soporte y seguimiento para alcanzar los resultados esperados a nivel global.<br><br>';
-  html += 'Por favor, confirme la recepción de este correo para iniciar el diálogo y planificar el próximo accionar.<br><br>';
-  html += 'A disposición ante cualquier consulta. Saludos cordiales,';
+  html += 'El propósito de esta comunicación es identificar las unidades involucradas que han sido asignadas a su concesionario y proponer un trabajo conjunto para lograr el cumplimiento de la campaña de manera eficiente y sostenida.<br><br>';
+  html += 'Les solicitamos confirmar la recepción de este correo. De esta manera damos inicio a un diálogo para definir un objetivo mensual de cumplimiento que sea alcanzable y se adapte a la realidad operativa de su concesionario.<br><br>';
+  html += '<b>Objetivo</b>';
+  html += '<ul style="margin:6px 0 14px;padding-left:20px;">';
+  html += '<li>Definir un plan de acción que permita avanzar con el cumplimiento de las campañas activas.</li>';
+  html += '<li>Realizar seguimiento periódico del progreso de la campaña.</li>';
+  html += '<li>Auditar mensualmente el proceso hasta la finalización de la campaña.</li>';
+  html += '</ul>';
+  html += 'Aclaro que, hasta tanto no se acuerde el objetivo de cumplimiento y la metodología de trabajo, no realizaremos ninguna medición de desempeño. En esta primera etapa, la prioridad es establecer un esquema de trabajo claro, realista y beneficioso para ambas partes.<br><br>';
+  html += 'Desde Yamaha estaremos acompañándolos durante todo el proceso.<br><br>';
+  html += 'Agradeceremos su confirmación de recepción para iniciar el diálogo y coordinar los próximos pasos.<br><br>';
+  html += 'Quedamos a disposición ante cualquier consulta.<br><br>';
+  html += 'Saludos cordiales,';
   html += '</div>';
 
   // Versión texto plano (para el portapapeles, sin formato)
   let body = 'Estimado ' + dealerLine + ',\n\n';
-  body += 'Les compartimos la información correspondiente a la campaña de recall activa:\n';
+  body += 'Nos ponemos en contacto con el fin de compartirles información sobre la campaña de recall activa en mención.\n\n';
+  body += 'Detalles\n';
   body += 'Campaña: ' + (r.name || '') + '\n';
   body += 'Modelo involucrado: ' + (r.models || '-') + '\n';
-  body += 'Vigencia: Desde el ' + vig + '\n\n';
-  body += 'Adjuntos:\n';
-  body += '• Boletín de lanzamiento de la campaña\n';
-  body += '• Listado de unidades asignadas a ustedes.\n';
-  body += '• Instructivo de aplicación de la campaña.\n';
+  body += 'Puesta en vigencia: ' + vig + '\n\n';
+  body += 'Archivos adjuntos:\n';
+  body += '• Boletín de lanzamiento de la campaña.\n';
+  body += '• Instructivo de realización.\n';
+  body += '• Listado de unidades asignadas a su concesionario.\n';
   body += '• Acta de intervención de campaña de recall.\n\n';
   body += 'Propuesta\n';
-  body += 'El objetivo de este comunicado es darle el conocimiento de las unidades involucradas que le fueron asignadas, y proponer que llevemos esta actividad en conjunto para lograr el cumplimiento de la misma.\n\n';
-  body += 'Les solicito que confirmen la recepción de este mail, para luego definir un objetivo de cumplimiento mensual que sea alcanzable y acorde a la realidad de su concesionario.\n';
-  body += 'Nuestra estrategia es idear un plan que nos permita cumplir con el objetivo y dar seguimiento al avance de la campaña de forma ordenada y sostenible en el tiempo, la actividad se auditará mes a mes hasta concluir con la campaña.\n\n';
-  body += 'Aclaro que, hasta que no definamos ese objetivo en conjunto, no se realizará ninguna medición de cumplimiento, la prioridad es acordar una metodología de trabajo que resulte clara y viable para ambas partes. Por lo que no pondremos fechas de cumplimiento en esta primera instancia.\n\n';
-  body += 'Buscamos acompañarlos durante el proceso, brindar soporte y seguimiento para alcanzar los resultados esperados a nivel global.\n\n';
-  body += 'Por favor, confirme la recepción de este correo para iniciar el diálogo y planificar el próximo accionar.\n\n';
-  body += 'A disposición ante cualquier consulta. Saludos cordiales,';
+  body += 'El propósito de esta comunicación es identificar las unidades involucradas que han sido asignadas a su concesionario y proponer un trabajo conjunto para lograr el cumplimiento de la campaña de manera eficiente y sostenida.\n\n';
+  body += 'Les solicitamos confirmar la recepción de este correo. De esta manera damos inicio a un diálogo para definir un objetivo mensual de cumplimiento que sea alcanzable y se adapte a la realidad operativa de su concesionario.\n\n';
+  body += 'Objetivo\n';
+  body += '• Definir un plan de acción que permita avanzar con el cumplimiento de las campañas activas.\n';
+  body += '• Realizar seguimiento periódico del progreso de la campaña.\n';
+  body += '• Auditar mensualmente el proceso hasta la finalización de la campaña.\n\n';
+  body += 'Aclaro que, hasta tanto no se acuerde el objetivo de cumplimiento y la metodología de trabajo, no realizaremos ninguna medición de desempeño. En esta primera etapa, la prioridad es establecer un esquema de trabajo claro, realista y beneficioso para ambas partes.\n\n';
+  body += 'Desde Yamaha estaremos acompañándolos durante todo el proceso.\n\n';
+  body += 'Agradeceremos su confirmación de recepción para iniciar el diálogo y coordinar los próximos pasos.\n\n';
+  body += 'Quedamos a disposición ante cualquier consulta.\n\n';
+  body += 'Saludos cordiales,' 
 
   const firstEmail = p.dlr_email.split(/[;,]/)[0].trim();
   const mailto = 'mailto:' + encodeURIComponent(firstEmail) + '?subject=' + encodeURIComponent(subject); // cuerpo vacío: el texto va por portapapeles
   function _finishNotify(copied){
     alert(copied
-      ? 'Copiamos el correo con formato (negritas y rojo) al portapapeles. Se abre el mail con el destinatario y el asunto: pegá con Ctrl+V (o Cmd+V) en el cuerpo.'
+      ? 'Copiamos el correo con formato (negritas) al portapapeles. Se abre el mail con el destinatario y el asunto: pegá con Ctrl+V (o Cmd+V) en el cuerpo.'
       : 'Se abrió el correo con el destinatario y el asunto. (Tu navegador no permitió copiar el texto con formato; copialo desde el detalle de la campaña.)');
     window.location.href = mailto;
     if (!(r.notifications||{})[code]) { setRecallNotification(recallId, code, new Date().toISOString().slice(0,10)); }
